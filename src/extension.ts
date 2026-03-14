@@ -56,7 +56,8 @@ async function runReview(
   diagnostics: CritiqDiagnostics,
   statusBar: CritiqStatusBar,
   outputChannel: vscode.OutputChannel,
-  treeProvider: CritiqTreeProvider
+  treeProvider: CritiqTreeProvider,
+  gutterDecorations: CritiqGutterDecorations
 ): Promise<void> {
   const root = getWorkspaceRoot();
   if (!root) {
@@ -77,6 +78,7 @@ async function runReview(
     diagnostics.apply(result, root);
     statusBar.setResult(result);
     treeProvider.update(result, root);
+    gutterDecorations.update(result, root);
 
     const summary = summariseResult(result);
     outputChannel.appendLine(`[critiq] ${summary}`);
@@ -156,6 +158,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const statusBar = new CritiqStatusBar();
   const outputChannel = vscode.window.createOutputChannel("critiq");
   const treeProvider = new CritiqTreeProvider();
+  const gutterDecorations = new CritiqGutterDecorations();
 
   // Register tree view
   const treeView = vscode.window.createTreeView("critiqFindings", {
@@ -167,7 +170,19 @@ export function activate(context: vscode.ExtensionContext): void {
     diagnostics,
     statusBar,
     outputChannel,
-    treeView
+    treeView,
+    gutterDecorations,
+    // Apply gutter decorations whenever user switches to an editor
+    vscode.window.onDidChangeActiveTextEditor((editor) => {
+      if (editor) {
+        gutterDecorations.applyToEditor(editor);
+      }
+    }),
+    vscode.window.onDidChangeVisibleTextEditors((editors) => {
+      for (const editor of editors) {
+        gutterDecorations.applyToEditor(editor);
+      }
+    })
   );
 
   // ── Review commands ────────────────────────────────────────────────────────
@@ -179,7 +194,8 @@ export function activate(context: vscode.ExtensionContext): void {
         diagnostics,
         statusBar,
         outputChannel,
-        treeProvider
+        treeProvider,
+        gutterDecorations
       )
     )
   );
@@ -199,7 +215,8 @@ export function activate(context: vscode.ExtensionContext): void {
         diagnostics,
         statusBar,
         outputChannel,
-        treeProvider
+        treeProvider,
+        gutterDecorations
       );
     })
   );
@@ -217,7 +234,8 @@ export function activate(context: vscode.ExtensionContext): void {
         diagnostics,
         statusBar,
         outputChannel,
-        treeProvider
+        treeProvider,
+        gutterDecorations
       );
     })
   );
@@ -227,6 +245,7 @@ export function activate(context: vscode.ExtensionContext): void {
       diagnostics.clear();
       statusBar.setIdle();
       treeProvider.clear();
+      gutterDecorations.clear();
       outputChannel.appendLine("[critiq] Diagnostics cleared.");
     })
   );
@@ -271,7 +290,8 @@ export function activate(context: vscode.ExtensionContext): void {
                 diagnostics,
                 statusBar,
                 outputChannel,
-                treeProvider
+                treeProvider,
+                gutterDecorations
               );
             } else {
               vscode.window.showErrorMessage(`critiq fix failed: ${message}`);
@@ -334,7 +354,8 @@ export function activate(context: vscode.ExtensionContext): void {
           diagnostics,
           statusBar,
           outputChannel,
-          treeProvider
+          treeProvider,
+          gutterDecorations
         );
       }
     })

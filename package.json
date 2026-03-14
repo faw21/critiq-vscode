@@ -1,14 +1,26 @@
 {
   "name": "critiq",
-  "displayName": "critiq — AI Code Reviewer",
+  "displayName": "critiq \u2014 AI Code Reviewer",
   "description": "AI-powered code review in VS Code: catch security issues, bugs, and antipatterns before you push. Powered by Claude, OpenAI, or local Ollama.",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "publisher": "faw21",
   "engines": {
     "vscode": "^1.80.0"
   },
-  "categories": ["Linters", "Other"],
-  "keywords": ["ai", "code review", "git", "security", "claude", "openai", "ollama", "linter"],
+  "categories": [
+    "Linters",
+    "Other"
+  ],
+  "keywords": [
+    "ai",
+    "code review",
+    "git",
+    "security",
+    "claude",
+    "openai",
+    "ollama",
+    "linter"
+  ],
   "icon": "images/icon.png",
   "galleryBanner": {
     "color": "#1a1a2e",
@@ -85,7 +97,11 @@
       "properties": {
         "critiq.provider": {
           "type": "string",
-          "enum": ["claude", "openai", "ollama"],
+          "enum": [
+            "claude",
+            "openai",
+            "ollama"
+          ],
           "default": "claude",
           "description": "LLM provider to use for code review"
         },
@@ -96,13 +112,26 @@
         },
         "critiq.focus": {
           "type": "string",
-          "enum": ["all", "security", "performance", "readability", "correctness", "style"],
+          "enum": [
+            "all",
+            "security",
+            "performance",
+            "readability",
+            "correctness",
+            "style"
+          ],
           "default": "all",
           "description": "Focus area for reviews"
         },
         "critiq.severity": {
           "type": "string",
-          "enum": ["", "critical", "warning", "info", "suggestion"],
+          "enum": [
+            "",
+            "critical",
+            "warning",
+            "info",
+            "suggestion"
+          ],
           "default": "",
           "description": "Minimum severity to show (leave empty to show all)"
         },
