@@ -95,6 +95,22 @@ export class CritiqGutterDecorations {
       sevMap.get(comment.severity)!.push(parseLineNumber(comment.line));
     }
 
+    // Build per-file ghost text options (line → first title)
+    const byFileGhost = new Map<string, Map<number, string>>();
+    for (const comment of result.comments) {
+      if (!comment.file) continue;
+      const absPath = comment.file.startsWith("/")
+        ? comment.file
+        : path.join(workspaceRoot, comment.file);
+      if (!byFileGhost.has(absPath)) byFileGhost.set(absPath, new Map());
+      const lineNum = parseLineNumber(comment.line);
+      // Only show the first issue on each line (most severe first → keep existing)
+      if (!byFileGhost.get(absPath)!.has(lineNum)) {
+        const prefix = comment.severity === "critical" ? "⚡" : comment.severity === "warning" ? "⚠" : "·";
+        byFileGhost.get(absPath)!.set(lineNum, `  ${prefix} ${comment.title}`);
+      }
+    }
+
     // For each open editor that has findings, apply decorations
     for (const editor of vscode.window.visibleTextEditors) {
       const filePath = editor.document.uri.fsPath;
@@ -104,6 +120,7 @@ export class CritiqGutterDecorations {
       for (const decType of Object.values(DECORATION_TYPES)) {
         editor.setDecorations(decType, []);
       }
+      editor.setDecorations(INLINE_GHOST_TYPE, []);
 
       if (!sevMap) continue;
 
@@ -113,6 +130,19 @@ export class CritiqGutterDecorations {
           (line) => new vscode.Range(line, 0, line, 0)
         );
         editor.setDecorations(decType, ranges);
+      }
+
+      // Apply inline ghost text
+      const ghostMap = byFileGhost.get(filePath);
+      if (ghostMap) {
+        const ghostDecorations: vscode.DecorationOptions[] = [];
+        for (const [line, text] of ghostMap) {
+          ghostDecorations.push({
+            range: new vscode.Range(line, 999, line, 999),
+            renderOptions: { after: { contentText: text } },
+          });
+        }
+        editor.setDecorations(INLINE_GHOST_TYPE, ghostDecorations);
       }
     }
   }
