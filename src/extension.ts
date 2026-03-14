@@ -1,18 +1,27 @@
 /**
- * critiq VS Code extension — entry point.
+ * critiq VS Code extension — entry point v1.3.0
  *
- * Commands registered:
- *   critiq.reviewStaged       — review staged git changes (Cmd+Shift+R)
- *   critiq.reviewBranch       — review all changes vs a branch
- *   critiq.reviewFile         — review current open file
- *   critiq.clearDiagnostics   — clear all critiq diagnostics
- *   critiq.fixCurrentFile     — auto-fix issues in a file via critiq --fix-all
- *   critiq.learnIgnore        — run critiq-learn ignore <pattern>
- *   critiq.showOutput         — reveal the critiq output channel
+ * Features:
+ *   - Inline diagnostics (Problems panel) with severity colours
+ *   - Gutter icons + inline ghost-text hints (GitLens-style)
+ *   - Sidebar Tree View of all findings grouped by severity/file
+ *   - Code Action lightbulb: "Fix with critiq" + "Ignore issue type"
+ *   - Status bar: live issue count, click to re-review
+ *
+ * Commands:
+ *   critiq.reviewStaged      — review staged changes (Cmd+Shift+R)
+ *   critiq.reviewBranch      — review vs a branch
+ *   critiq.reviewFile        — review current open file
+ *   critiq.clearDiagnostics  — clear all diagnostics
+ *   critiq.fixCurrentFile    — auto-fix all issues in a file (Code Action)
+ *   critiq.learnIgnore       — add ignore pattern via critiq-learn (Code Action)
+ *   critiq.showOutput        — show critiq output channel (Code Action)
+ *   critiq.openIssue         — navigate to file/line (Tree View)
  */
 
+import * as path from "path";
 import * as vscode from "vscode";
-import { CritiqResult, ReviewMode, runCritiq } from "./critiq";
+import { ReviewMode, runCritiq } from "./critiq";
 import {
   CritiqCodeActionProvider,
   fixCurrentFile,
@@ -21,35 +30,16 @@ import {
 import { CritiqDiagnostics } from "./diagnostics";
 import { CritiqGutterDecorations } from "./gutterDecorations";
 import { CritiqStatusBar } from "./statusBar";
-import { CritiqTreeProvider } from "./treeView";
 import {
   setReviewState,
   clearReviewState,
 } from "./reviewState";
+import { CritiqTreeProvider } from "./treeView";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function getWorkspaceRoot(): string | undefined {
-  const folders = vscode.workspace.workspaceFolders;
-  return folders?.[0]?.uri.fsPath;
-}
-
-function summariseResult(result: CritiqResult): string {
-  const critical = result.comments.filter((c) => c.severity === "critical").length;
-  const warnings = result.comments.filter((c) => c.severity === "warning").length;
-  const info = result.comments.filter(
-    (c) => c.severity === "info" || c.severity === "suggestion"
-  ).length;
-
-  if (result.comments.length === 0) {
-    return `✅ No issues found. ${result.summary}`;
-  }
-
-  const parts: string[] = [];
-  if (critical > 0) parts.push(`${critical} critical`);
-  if (warnings > 0) parts.push(`${warnings} warnings`);
-  if (info > 0) parts.push(`${info} suggestions`);
-  return `${result.overall_rating}  ${parts.join(", ")}`;
+  return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 }
 
 // ── Core review runner ───────────────────────────────────────────────────────
@@ -57,10 +47,10 @@ function summariseResult(result: CritiqResult): string {
 async function runReview(
   mode: ReviewMode,
   diagnostics: CritiqDiagnostics,
+  gutter: CritiqGutterDecorations,
   statusBar: CritiqStatusBar,
-  outputChannel: vscode.OutputChannel,
   treeProvider: CritiqTreeProvider,
-  gutterDecorations: CritiqGutterDecorations
+  outputChannel: vscode.OutputChannel
 ): Promise<void> {
   const root = getWorkspaceRoot();
   if (!root) {
@@ -78,59 +68,71 @@ async function runReview(
   try {
     const result = await runCritiq(root, mode);
 
-    // Update shared state (used by code actions)
-    setReviewState(
-      result,
-      root,
-      mode.kind,
-      mode.kind === "branch" ? mode.branch : undefined
-    );
+    // Update shared state (used by Code Actions)
+    const branch = mode.kind === "branch" ? mode.branch : undefined;
+    setReviewState(result, root, mode.kind, branch);
 
+    // Update all views
     diagnostics.apply(result, root);
+    gutter.apply(result, root);
     statusBar.setResult(result);
     treeProvider.update(result, root);
-    gutterDecorations.apply(result, root);
 
-    const summary = summariseResult(result);
+    // Log to output channel
+    const critical = result.comments.filter((c) => c.severity === "critical").length;
+    const warnings = result.comments.filter((c) => c.severity === "warning").length;
+    const info = result.comments.filter(
+      (c) => c.severity === "info" || c.severity === "suggestion"
+    ).length;
+
+    const summary =
+      result.comments.length === 0
+        ? `✅ No issues found. ${result.summary}`
+        : `${result.overall_rating}  ${[
+            critical > 0 ? `${critical} critical` : "",
+            warnings > 0 ? `${warnings} warnings` : "",
+            info > 0 ? `${info} suggestions` : "",
+          ]
+            .filter(Boolean)
+            .join(", ")}`;
+
     outputChannel.appendLine(`[critiq] ${summary}`);
-
-    if (result.summary) {
+    if (result.summary && result.comments.length > 0) {
       outputChannel.appendLine(`         ${result.summary}`);
     }
-
-    if (result.comments.length > 0) {
-      outputChannel.appendLine("");
-      for (const c of result.comments) {
-        const icon =
-          c.severity === "critical" ? "🚨"
-          : c.severity === "warning" ? "⚠️ "
-          : c.severity === "info"    ? "ℹ️ "
-          : "💡";
-        outputChannel.appendLine(
-          `  ${icon} [${c.severity.toUpperCase()}] ${c.title}`
-        );
-        if (c.file) outputChannel.appendLine(`     ${c.file} ${c.line}`);
-        if (c.body) {
-          const bodyShort = c.body.replace(/\*\*/g, "").split("\n")[0];
-          outputChannel.appendLine(`     ${bodyShort}`);
-        }
+    for (const c of result.comments) {
+      const icon =
+        c.severity === "critical" ? "🚨"
+        : c.severity === "warning" ? "⚠️ "
+        : c.severity === "info"    ? "ℹ️ "
+        : "💡";
+      outputChannel.appendLine(`  ${icon} [${c.severity.toUpperCase()}] ${c.title}`);
+      if (c.file) outputChannel.appendLine(`     ${c.file} ${c.line}`);
+      if (c.body) {
+        outputChannel.appendLine(`     ${c.body.replace(/\*\*/g, "").split("\n")[0]}`);
       }
     }
 
-    // Notification for critical issues
-    const critical = result.comments.filter((c) => c.severity === "critical").length;
+    // Notification
     if (critical > 0) {
       const action = await vscode.window.showWarningMessage(
         `critiq found ${critical} critical issue(s)`,
-        "Fix Current File",
+        "Fix All",
         "Show Problems",
         "Dismiss"
       );
-      if (action === "Fix Current File") {
-        vscode.commands.executeCommand(
-          "critiq.fixCurrentFile",
-          vscode.window.activeTextEditor?.document.uri
-        );
+      if (action === "Fix All") {
+        const files = [
+          ...new Set(result.comments.map((c) => c.file).filter(Boolean)),
+        ];
+        for (const file of files) {
+          const absPath = file.startsWith("/")
+            ? file
+            : path.join(root, file);
+          await fixCurrentFile(vscode.Uri.file(absPath));
+        }
+        // Refresh after fixes
+        await runReview(mode, diagnostics, gutter, statusBar, treeProvider, outputChannel);
       } else if (action === "Show Problems") {
         vscode.commands.executeCommand("workbench.action.problems.focus");
       }
@@ -147,22 +149,19 @@ async function runReview(
       "Show Output",
       "Dismiss"
     );
-    if (action === "Show Output") {
-      outputChannel.show();
-    }
+    if (action === "Show Output") outputChannel.show();
   }
 }
 
 // ── Extension lifecycle ──────────────────────────────────────────────────────
 
 export function activate(context: vscode.ExtensionContext): void {
-  const diagnostics = new CritiqDiagnostics();
-  const statusBar = new CritiqStatusBar();
+  const diagnostics   = new CritiqDiagnostics();
+  const gutter        = new CritiqGutterDecorations();
+  const statusBar     = new CritiqStatusBar();
+  const treeProvider  = new CritiqTreeProvider();
   const outputChannel = vscode.window.createOutputChannel("critiq");
-  const treeProvider = new CritiqTreeProvider();
-  const gutterDecorations = new CritiqGutterDecorations();
 
-  // Register tree view (activity bar panel)
   const treeView = vscode.window.createTreeView("critiqFindings", {
     treeDataProvider: treeProvider,
     showCollapseAll: true,
@@ -173,82 +172,20 @@ export function activate(context: vscode.ExtensionContext): void {
     statusBar,
     outputChannel,
     treeView,
-    { dispose: () => gutterDecorations.dispose() }
+    { dispose: () => gutter.dispose() }
   );
 
-  // Helper to run review commands
-  const review = (mode: ReviewMode) =>
-    runReview(mode, diagnostics, statusBar, outputChannel, treeProvider, gutterDecorations);
-
-  // ── Review commands ────────────────────────────────────────────────────────
-
+  // Apply gutter decorations when switching editors
   context.subscriptions.push(
-    vscode.commands.registerCommand("critiq.reviewStaged", () =>
-      review({ kind: "staged" })
-    )
-  );
-
-  context.subscriptions.push(
-    vscode.commands.registerCommand("critiq.reviewBranch", async () => {
-      const branch = await vscode.window.showInputBox({
-        prompt: "Compare against branch",
-        placeHolder: "main",
-        value: "main",
-      });
-      if (branch) review({ kind: "branch", branch });
+    vscode.window.onDidChangeActiveTextEditor((editor) => {
+      if (editor) gutter.applyToEditor(editor);
+    }),
+    vscode.window.onDidChangeVisibleTextEditors((editors) => {
+      for (const editor of editors) gutter.applyToEditor(editor);
     })
   );
 
-  context.subscriptions.push(
-    vscode.commands.registerCommand("critiq.reviewFile", () => {
-      const editor = vscode.window.activeTextEditor;
-      if (!editor) {
-        vscode.window.showErrorMessage("critiq: No active editor.");
-        return;
-      }
-      review({ kind: "file", filePath: editor.document.uri.fsPath });
-    })
-  );
-
-  context.subscriptions.push(
-    vscode.commands.registerCommand("critiq.clearDiagnostics", () => {
-      clearReviewState();
-      diagnostics.clear();
-      statusBar.setIdle();
-      treeProvider.update(null, "");
-      gutterDecorations.clear();
-      outputChannel.appendLine("[critiq] Diagnostics cleared.");
-    })
-  );
-
-  // ── Fix current file ───────────────────────────────────────────────────────
-
-  context.subscriptions.push(
-    vscode.commands.registerCommand(
-      "critiq.fixCurrentFile",
-      (uri?: vscode.Uri) => fixCurrentFile(uri)
-    )
-  );
-
-  // ── Learn ignore pattern ───────────────────────────────────────────────────
-
-  context.subscriptions.push(
-    vscode.commands.registerCommand(
-      "critiq.learnIgnore",
-      (pattern: string) => learnIgnorePattern(pattern)
-    )
-  );
-
-  // ── Show output ────────────────────────────────────────────────────────────
-
-  context.subscriptions.push(
-    vscode.commands.registerCommand("critiq.showOutput", () => {
-      outputChannel.show();
-    })
-  );
-
-  // ── Code Action provider ───────────────────────────────────────────────────
-
+  // Code Action provider (lightbulb)
   context.subscriptions.push(
     vscode.languages.registerCodeActionsProvider(
       { scheme: "file" },
@@ -260,15 +197,88 @@ export function activate(context: vscode.ExtensionContext): void {
     )
   );
 
-  // ── Apply gutter decorations when user switches editors ───────────────────
+  // ── Review commands ───────────────────────────────────────────────────────
 
   context.subscriptions.push(
-    vscode.window.onDidChangeActiveTextEditor((editor) => {
-      if (editor) gutterDecorations.applyToEditor(editor);
+    vscode.commands.registerCommand("critiq.reviewStaged", () =>
+      runReview(
+        { kind: "staged" },
+        diagnostics, gutter, statusBar, treeProvider, outputChannel
+      )
+    ),
+    vscode.commands.registerCommand("critiq.reviewBranch", async () => {
+      const branch = await vscode.window.showInputBox({
+        prompt: "Compare against branch",
+        placeHolder: "main",
+        value: "main",
+      });
+      if (!branch) return;
+      runReview(
+        { kind: "branch", branch },
+        diagnostics, gutter, statusBar, treeProvider, outputChannel
+      );
+    }),
+    vscode.commands.registerCommand("critiq.reviewFile", () => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) {
+        vscode.window.showErrorMessage("critiq: No active editor.");
+        return;
+      }
+      runReview(
+        { kind: "file", filePath: editor.document.uri.fsPath },
+        diagnostics, gutter, statusBar, treeProvider, outputChannel
+      );
+    }),
+    vscode.commands.registerCommand("critiq.clearDiagnostics", () => {
+      clearReviewState();
+      diagnostics.clear();
+      gutter.clear();
+      statusBar.setIdle();
+      treeProvider.update(null, "");
+      outputChannel.appendLine("[critiq] Diagnostics cleared.");
     })
   );
 
-  // ── Auto-review on save (if enabled) ──────────────────────────────────────
+  // ── Code Action commands ──────────────────────────────────────────────────
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "critiq.fixCurrentFile",
+      (uri?: vscode.Uri) => fixCurrentFile(uri)
+    ),
+    vscode.commands.registerCommand(
+      "critiq.learnIgnore",
+      (pattern: string) => learnIgnorePattern(pattern)
+    ),
+    vscode.commands.registerCommand("critiq.showOutput", () => {
+      outputChannel.show();
+    })
+  );
+
+  // ── Open issue (Tree View click) ──────────────────────────────────────────
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "critiq.openIssue",
+      async (filePath: string, lineNum: number) => {
+        try {
+          const uri = vscode.Uri.file(filePath);
+          const doc = await vscode.workspace.openTextDocument(uri);
+          const editor = await vscode.window.showTextDocument(doc);
+          const line = Math.min(lineNum, doc.lineCount - 1);
+          const range = new vscode.Range(line, 0, line, 0);
+          editor.selection = new vscode.Selection(range.start, range.start);
+          editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
+        } catch {
+          vscode.window.showErrorMessage(
+            `critiq: Could not open ${filePath}`
+          );
+        }
+      }
+    )
+  );
+
+  // ── Auto-review on save ───────────────────────────────────────────────────
 
   context.subscriptions.push(
     vscode.workspace.onDidSaveTextDocument((doc) => {
@@ -276,16 +286,19 @@ export function activate(context: vscode.ExtensionContext): void {
       if (!cfg.get<boolean>("autoReviewOnStage", false)) return;
       const root = getWorkspaceRoot();
       if (root && doc.uri.fsPath.startsWith(root)) {
-        review({ kind: "staged" });
+        runReview(
+          { kind: "staged" },
+          diagnostics, gutter, statusBar, treeProvider, outputChannel
+        );
       }
     })
   );
 
   outputChannel.appendLine(
-    "critiq extension activated. Use Cmd+Shift+R (or Ctrl+Shift+R) to review staged changes."
+    "critiq activated. Use Cmd+Shift+R (Mac) / Ctrl+Shift+R to review staged changes."
   );
 }
 
 export function deactivate(): void {
-  // Subscriptions are disposed automatically.
+  // Subscriptions disposed automatically.
 }
