@@ -115,6 +115,10 @@ Preferences are saved to `.critiq.yaml` and picked up automatically on every rev
 
 - [critiq](https://github.com/faw21/critiq) — the CLI tool this extension wraps
 - [critiq-action](https://github.com/faw21/critiq-action) — GitHub Action for CI integration
+- [testfix](https://github.com/faw21/testfix) — AI that automatically fixes failing tests
+- [difftests](https://github.com/faw21/difftests) — AI test generator from git diffs
+- [gpr](https://github.com/faw21/gpr) — AI commit messages + PR descriptions
+- [standup-ai](https://github.com/faw21/standup-ai) — AI daily standup generator
 
 ---
 
