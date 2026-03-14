@@ -109,6 +109,48 @@ export async function learnIgnorePattern(pattern: string): Promise<void> {
   );
 }
 
+// ── Exported aliases matching extension.ts imports ────────────────────────────
+
+/** Alias: fix all issues in a file (for extension.ts compatibility) */
+export async function fixFile(
+  workspaceRoot: string,
+  filePath: string
+): Promise<void> {
+  const cfg = vscode.workspace.getConfiguration("critiq");
+  const binary = cfg.get<string>("binaryPath", "critiq");
+  const provider = cfg.get<string>("provider", "claude");
+  const model = cfg.get<string>("model", "");
+  const relPath = path.relative(workspaceRoot, filePath);
+
+  const args = ["--fix-all", "--file", relPath, "--provider", provider, "--compact"];
+  if (model) args.push("--model", model);
+
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  const anthropicKey = cfg.get<string>("anthropicApiKey", "");
+  if (anthropicKey) env["ANTHROPIC_API_KEY"] = anthropicKey;
+  const openaiKey = cfg.get<string>("openaiApiKey", "");
+  if (openaiKey) env["OPENAI_API_KEY"] = openaiKey;
+
+  const result = await runCritiqCommand(args, workspaceRoot);
+  if (result.exitCode === 0 || result.exitCode === 1) {
+    const uri = vscode.Uri.file(filePath);
+    await vscode.commands.executeCommand("workbench.action.files.revert", uri);
+    vscode.window.showInformationMessage(
+      `critiq: ✅ Fixes applied to ${path.basename(filePath)}`
+    );
+  } else {
+    throw new Error(result.stderr.trim() || result.stdout.trim());
+  }
+}
+
+/** Alias: teach critiq to ignore an issue type */
+export async function ignoreIssue(
+  issueTitle: string,
+  workspaceRoot: string
+): Promise<void> {
+  return learnIgnorePattern(issueTitle);
+}
+
 // ── Code action provider ─────────────────────────────────────────────────────
 
 export class CritiqCodeActionProvider implements vscode.CodeActionProvider {

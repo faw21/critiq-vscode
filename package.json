@@ -62,14 +62,19 @@
         "icon": "$(clear-all)"
       },
       {
-        "command": "critiq.fixFile",
-        "title": "critiq: Fix All Issues in File",
+        "command": "critiq.fixCurrentFile",
+        "title": "critiq: Fix All Issues in Current File",
         "icon": "$(wrench)"
       },
       {
-        "command": "critiq.ignoreIssue",
-        "title": "critiq: Ignore This Issue Type",
+        "command": "critiq.learnIgnore",
+        "title": "critiq: Teach critiq to Ignore a Pattern",
         "icon": "$(eye-closed)"
+      },
+      {
+        "command": "critiq.showOutput",
+        "title": "critiq: Show Review Output",
+        "icon": "$(output)"
       }
     ],
     "viewsContainers": {
@@ -172,7 +177,7 @@
       ],
       "editor/context": [
         {
-          "command": "critiq.fixFile",
+          "command": "critiq.fixCurrentFile",
           "group": "1_modification",
           "when": "resourceScheme == file"
         }
