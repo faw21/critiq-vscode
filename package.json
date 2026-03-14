@@ -2,7 +2,7 @@
   "name": "critiq",
   "displayName": "critiq — AI Code Reviewer",
   "description": "AI-powered code review in VS Code: catch security issues, bugs, and antipatterns before you push. Powered by Claude, OpenAI, or local Ollama.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "publisher": "faw21",
   "engines": {
     "vscode": "^1.80.0"
@@ -48,6 +48,36 @@
         "command": "critiq.clearDiagnostics",
         "title": "critiq: Clear All Diagnostics",
         "icon": "$(clear-all)"
+      },
+      {
+        "command": "critiq.fixFile",
+        "title": "critiq: Fix All Issues in File",
+        "icon": "$(wrench)"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "critiq",
+          "title": "critiq",
+          "icon": "$(shield)"
+        }
+      ]
+    },
+    "views": {
+      "critiq": [
+        {
+          "id": "critiqFindings",
+          "name": "Findings",
+          "icon": "$(shield)",
+          "contextualTitle": "critiq Findings"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "critiqFindings",
+        "contents": "No critiq findings yet.\n\nRun a review to see AI-powered code analysis results here.\n\n[Review Staged Changes](command:critiq.reviewStaged)\n[Review Current File](command:critiq.reviewFile)"
       }
     ],
     "configuration": {
@@ -94,7 +124,7 @@
         "critiq.autoReviewOnStage": {
           "type": "boolean",
           "default": false,
-          "description": "Automatically run review when files are staged (git add)"
+          "description": "Automatically run review when files are saved"
         }
       }
     },
@@ -106,9 +136,28 @@
           "when": "resourceScheme == file"
         }
       ],
+      "editor/context": [
+        {
+          "command": "critiq.fixFile",
+          "group": "1_modification",
+          "when": "resourceScheme == file"
+        }
+      ],
       "scm/title": [
         {
           "command": "critiq.reviewStaged",
+          "group": "navigation"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "critiq.reviewStaged",
+          "when": "view == critiqFindings",
+          "group": "navigation"
+        },
+        {
+          "command": "critiq.clearDiagnostics",
+          "when": "view == critiqFindings",
           "group": "navigation"
         }
       ]

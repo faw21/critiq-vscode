@@ -2,16 +2,21 @@
  * critiq VS Code extension — entry point.
  *
  * Commands:
- *   critiq.reviewStaged    — review staged git changes (default, Cmd+Shift+R)
- *   critiq.reviewBranch    — review all changes vs a branch
- *   critiq.reviewFile      — review current open file's changes
- *   critiq.clearDiagnostics — clear all critiq diagnostics
+ *   critiq.reviewStaged      — review staged git changes (default, Cmd+Shift+R)
+ *   critiq.reviewBranch      — review all changes vs a branch
+ *   critiq.reviewFile        — review current open file's changes
+ *   critiq.clearDiagnostics  — clear all critiq diagnostics
+ *   critiq.fixFile           — auto-fix all issues in a file (Code Action)
+ *   critiq.openIssue         — navigate to an issue location (Tree View)
  */
 
 import * as vscode from "vscode";
 import { CritiqResult, ReviewMode, runCritiq } from "./critiq";
+import { CritiqCodeActionProvider, runCritiqFix } from "./codeAction";
 import { CritiqDiagnostics } from "./diagnostics";
+import { CritiqGutterDecorations } from "./gutterDecorations";
 import { CritiqStatusBar } from "./statusBar";
+import { CritiqTreeProvider } from "./treeView";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -50,7 +55,8 @@ async function runReview(
   mode: ReviewMode,
   diagnostics: CritiqDiagnostics,
   statusBar: CritiqStatusBar,
-  outputChannel: vscode.OutputChannel
+  outputChannel: vscode.OutputChannel,
+  treeProvider: CritiqTreeProvider
 ): Promise<void> {
   const root = getWorkspaceRoot();
   if (!root) {
@@ -70,6 +76,7 @@ async function runReview(
 
     diagnostics.apply(result, root);
     statusBar.setResult(result);
+    treeProvider.update(result, root);
 
     const summary = summariseResult(result);
     outputChannel.appendLine(`[critiq] ${summary}`);
@@ -109,10 +116,18 @@ async function runReview(
     if (critical > 0) {
       const action = await vscode.window.showWarningMessage(
         `critiq found ${critical} critical issue(s)`,
+        "Fix All",
         "Show Problems",
         "Dismiss"
       );
-      if (action === "Show Problems") {
+      if (action === "Fix All") {
+        // Fix all files that have issues
+        const files = [...new Set(result.comments.map((c) => c.file).filter(Boolean))];
+        for (const file of files) {
+          const absPath = file.startsWith("/") ? file : `${root}/${file}`;
+          await vscode.commands.executeCommand("critiq.fixFile", absPath);
+        }
+      } else if (action === "Show Problems") {
         vscode.commands.executeCommand("workbench.action.problems.focus");
       }
     } else if (result.comments.length === 0) {
@@ -140,14 +155,32 @@ export function activate(context: vscode.ExtensionContext): void {
   const diagnostics = new CritiqDiagnostics();
   const statusBar = new CritiqStatusBar();
   const outputChannel = vscode.window.createOutputChannel("critiq");
+  const treeProvider = new CritiqTreeProvider();
 
-  context.subscriptions.push(diagnostics, statusBar, outputChannel);
+  // Register tree view
+  const treeView = vscode.window.createTreeView("critiqFindings", {
+    treeDataProvider: treeProvider,
+    showCollapseAll: true,
+  });
 
-  // ── Commands ───────────────────────────────────────────────────────────────
+  context.subscriptions.push(
+    diagnostics,
+    statusBar,
+    outputChannel,
+    treeView
+  );
+
+  // ── Review commands ────────────────────────────────────────────────────────
 
   context.subscriptions.push(
     vscode.commands.registerCommand("critiq.reviewStaged", () =>
-      runReview({ kind: "staged" }, diagnostics, statusBar, outputChannel)
+      runReview(
+        { kind: "staged" },
+        diagnostics,
+        statusBar,
+        outputChannel,
+        treeProvider
+      )
     )
   );
 
@@ -165,7 +198,8 @@ export function activate(context: vscode.ExtensionContext): void {
         { kind: "branch", branch },
         diagnostics,
         statusBar,
-        outputChannel
+        outputChannel,
+        treeProvider
       );
     })
   );
@@ -182,7 +216,8 @@ export function activate(context: vscode.ExtensionContext): void {
         { kind: "file", filePath },
         diagnostics,
         statusBar,
-        outputChannel
+        outputChannel,
+        treeProvider
       );
     })
   );
@@ -191,8 +226,96 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("critiq.clearDiagnostics", () => {
       diagnostics.clear();
       statusBar.setIdle();
+      treeProvider.clear();
       outputChannel.appendLine("[critiq] Diagnostics cleared.");
     })
+  );
+
+  // ── Fix command (used by Code Actions and review notification) ─────────────
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "critiq.fixFile",
+      async (filePath?: string) => {
+        const root = getWorkspaceRoot();
+        if (!root) {
+          vscode.window.showErrorMessage("critiq: No workspace folder open.");
+          return;
+        }
+
+        // Default to active editor if no filePath provided
+        const targetPath =
+          filePath ?? vscode.window.activeTextEditor?.document.uri.fsPath;
+        if (!targetPath) {
+          vscode.window.showErrorMessage(
+            "critiq: No file to fix. Open a file or run a review first."
+          );
+          return;
+        }
+
+        await vscode.window.withProgress(
+          {
+            location: vscode.ProgressLocation.Notification,
+            title: `critiq: Fixing issues in ${require("path").basename(targetPath)}…`,
+            cancellable: false,
+          },
+          async () => {
+            const { fixed, message } = await runCritiqFix(root, targetPath);
+            if (fixed) {
+              outputChannel.appendLine(
+                `[critiq] Fixed: ${require("path").basename(targetPath)}`
+              );
+              // Re-run review to refresh diagnostics after fix
+              await runReview(
+                { kind: "staged" },
+                diagnostics,
+                statusBar,
+                outputChannel,
+                treeProvider
+              );
+            } else {
+              vscode.window.showErrorMessage(`critiq fix failed: ${message}`);
+              outputChannel.appendLine(
+                `[critiq] Fix error: ${message}`
+              );
+            }
+          }
+        );
+      }
+    )
+  );
+
+  // ── Open issue (Tree View click) ───────────────────────────────────────────
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "critiq.openIssue",
+      async (filePath: string, lineNum: number) => {
+        try {
+          const uri = vscode.Uri.file(filePath);
+          const doc = await vscode.workspace.openTextDocument(uri);
+          const editor = await vscode.window.showTextDocument(doc);
+          const line = Math.min(lineNum, doc.lineCount - 1);
+          const range = new vscode.Range(line, 0, line, 0);
+          editor.selection = new vscode.Selection(range.start, range.start);
+          editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
+        } catch {
+          vscode.window.showErrorMessage(
+            `critiq: Could not open file: ${filePath}`
+          );
+        }
+      }
+    )
+  );
+
+  // ── Code Action provider ───────────────────────────────────────────────────
+
+  context.subscriptions.push(
+    vscode.languages.registerCodeActionsProvider(
+      { scheme: "file" },
+      new CritiqCodeActionProvider(),
+      { providedCodeActionKinds: CritiqCodeActionProvider.providedCodeActionKinds }
+    )
   );
 
   // ── Auto-review on save (if enabled) ──────────────────────────────────────
@@ -204,10 +327,15 @@ export function activate(context: vscode.ExtensionContext): void {
       if (!autoReview) {
         return;
       }
-      // Only review if the saved file is tracked by git (heuristic: in workspace)
       const root = getWorkspaceRoot();
       if (root && doc.uri.fsPath.startsWith(root)) {
-        runReview({ kind: "staged" }, diagnostics, statusBar, outputChannel);
+        runReview(
+          { kind: "staged" },
+          diagnostics,
+          statusBar,
+          outputChannel,
+          treeProvider
+        );
       }
     })
   );

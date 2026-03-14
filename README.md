@@ -1,13 +1,15 @@
 # critiq — AI Code Reviewer for VS Code
 
-AI-powered code review directly in VS Code. Reviews your git changes before you push, shows issues as inline diagnostics in the Problems panel, and supports Claude, OpenAI, or local Ollama.
+AI-powered code review directly in VS Code. Reviews your git changes before you push, shows issues as inline diagnostics and in a dedicated sidebar panel, and auto-fixes issues with a single click. Supports Claude, OpenAI, or local Ollama.
 
 ## Features
 
 - **Inline diagnostics** — findings appear as red/yellow squiggles and in the Problems panel
-- **Status bar** — always shows your current review status (click to re-run)
-- **Language-aware** — automatically detects Python, Go, TypeScript, Rust, and injects language-specific antipattern checks
-- **Severity levels** — CRITICAL (red), WARNING (yellow), INFO (blue), SUGGESTION (hint)
+- **🌲 Findings Tree View** — dedicated sidebar panel showing all issues grouped by file, sorted by severity; click any issue to jump to the exact line
+- **🔧 One-click Fix** — "Fix with critiq" lightbulb appears on any flagged line; auto-patches the file using the critiq CLI and refreshes diagnostics
+- **Status bar** — always shows your current review status with issue counts (click to re-run)
+- **Language-aware** — automatically detects Python, Go, TypeScript, Rust, JavaScript, and injects language-specific antipattern checks
+- **Severity levels** — CRITICAL (error/red), WARNING (yellow), INFO (info), SUGGESTION (hint)
 - **Multiple review modes** — staged changes, vs branch, or current file
 - **Keyboard shortcut** — `Cmd+Shift+R` (Mac) / `Ctrl+Shift+R` (Windows/Linux)
 
@@ -33,6 +35,7 @@ export OPENAI_API_KEY=your-key      # or OpenAI
 | `critiq: Review Staged Changes` | `Cmd+Shift+R` | Review your `git add`-ed files |
 | `critiq: Review Changes vs Branch` | — | Compare all changes vs a branch (e.g. `main`) |
 | `critiq: Review Current File` | — | Review the file currently open in the editor |
+| `critiq: Fix All Issues in File` | — | Auto-fix all issues in the current file using the critiq CLI |
 | `critiq: Clear All Diagnostics` | — | Remove all critiq markers |
 
 Commands are also accessible from:
@@ -83,7 +86,9 @@ Commands are also accessible from:
 1. Press `Cmd+Shift+R` (or use the Command Palette)
 2. critiq runs `critiq --json` on your staged changes
 3. Findings appear as VS Code diagnostics (Problems panel + inline squiggles)
-4. Status bar shows issue count — click to re-run
+4. Open the **critiq sidebar** (shield icon) to see all findings grouped by file
+5. Hover over any flagged line → click the 💡 lightbulb → "Fix with critiq"
+6. Status bar shows issue count — click to re-run
 
 The extension requires the [critiq CLI](https://github.com/faw21/critiq) (`pip install critiq`). All LLM calls are made by the CLI, not the extension itself — your API keys stay in your environment.
 
