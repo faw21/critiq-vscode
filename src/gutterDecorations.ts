@@ -8,12 +8,24 @@ import { CritiqComment, CritiqResult } from "./critiq";
 
 // ── Decoration types (created once, reused across reviews) ──────────────────
 
-function makeDecorationType(iconFile: string): vscode.TextEditorDecorationType {
+// Overview ruler colours per severity
+const RULER_COLOURS: Record<CritiqComment["severity"], string> = {
+  critical: "rgba(244,71,71,0.8)",
+  warning: "rgba(255,140,0,0.8)",
+  info: "rgba(117,190,255,0.6)",
+  suggestion: "rgba(138,138,138,0.5)",
+};
+
+function makeDecorationType(
+  iconFile: string,
+  rulerColor: string
+): vscode.TextEditorDecorationType {
   const iconPath = path.join(__dirname, "..", "images", iconFile);
   return vscode.window.createTextEditorDecorationType({
     gutterIconPath: iconPath,
     gutterIconSize: "contain",
     overviewRulerLane: vscode.OverviewRulerLane.Left,
+    overviewRulerColor: rulerColor,
   });
 }
 
@@ -21,18 +33,10 @@ const DECORATION_TYPES: Record<
   CritiqComment["severity"],
   vscode.TextEditorDecorationType
 > = {
-  critical: makeDecorationType("gutter-critical.svg"),
-  warning: makeDecorationType("gutter-warning.svg"),
-  info: makeDecorationType("gutter-info.svg"),
-  suggestion: makeDecorationType("gutter-suggestion.svg"),
-};
-
-// Overview ruler colours per severity
-const RULER_COLOURS: Record<CritiqComment["severity"], string> = {
-  critical: "rgba(244,71,71,0.8)",
-  warning: "rgba(255,140,0,0.8)",
-  info: "rgba(117,190,255,0.6)",
-  suggestion: "rgba(138,138,138,0.5)",
+  critical: makeDecorationType("gutter-critical.svg", RULER_COLOURS.critical),
+  warning: makeDecorationType("gutter-warning.svg", RULER_COLOURS.warning),
+  info: makeDecorationType("gutter-info.svg", RULER_COLOURS.info),
+  suggestion: makeDecorationType("gutter-suggestion.svg", RULER_COLOURS.suggestion),
 };
 
 // ── Line number parsing ──────────────────────────────────────────────────────

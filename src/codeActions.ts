@@ -100,13 +100,28 @@ export async function learnIgnorePattern(pattern: string): Promise<void> {
 
   const cfg = vscode.workspace.getConfiguration("critiq");
   const binary = cfg.get<string>("binaryPath", "critiq");
-  // critiq-learn is a separate entry point; derive it from binary path
+  // critiq-learn is a separate entry point — different binary from critiq
   const learnBinary = binary.replace(/critiq$/, "critiq-learn");
 
-  const result = await runCritiqCommand(["ignore", pattern], state.root);
-  vscode.window.showInformationMessage(
-    `critiq-learn: Pattern ignored — "${pattern}"`
-  );
+  return new Promise<void>((resolve) => {
+    const proc = require("child_process").execFile(
+      learnBinary,
+      ["ignore", pattern],
+      { cwd: state.root },
+      (err: Error | null, _stdout: string, stderr: string) => {
+        if (err) {
+          vscode.window.showErrorMessage(
+            `critiq-learn failed: ${(stderr || err.message).trim()}`
+          );
+        } else {
+          vscode.window.showInformationMessage(
+            `critiq: ✅ Pattern added to ignore list — "${pattern.slice(0, 60)}"`
+          );
+        }
+        resolve();
+      }
+    );
+  });
 }
 
 // ── Exported aliases matching extension.ts imports ────────────────────────────
