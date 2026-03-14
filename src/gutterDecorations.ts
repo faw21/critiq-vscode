@@ -39,6 +39,16 @@ const DECORATION_TYPES: Record<
   suggestion: makeDecorationType("gutter-suggestion.svg", RULER_COLOURS.suggestion),
 };
 
+// ── Inline ghost text decoration (one shared type, per-range renderOptions) ──
+
+const INLINE_GHOST_TYPE = vscode.window.createTextEditorDecorationType({
+  after: {
+    color: new vscode.ThemeColor('editorGhostText.foreground'),
+    fontStyle: 'italic',
+    margin: '0 0 0 1.5em',
+  },
+});
+
 // ── Line number parsing ──────────────────────────────────────────────────────
 
 function parseLineNumber(lineRef: string): number {
