@@ -1,109 +1,66 @@
 /**
- * critiq Tree View — shows findings organized by file in the Explorer/Activity Bar.
- *
- * Structure:
- *   📁 src/auth.py (3 issues)
- *     🚨 [CRITICAL] SQL Injection vulnerability   L42
- *     ⚠️  [WARNING]  Bare except clause            L58
- *     💡 [SUGGESTION] Missing type annotation     L71
- *   📁 src/utils.py (1 issue)
- *     ⚠️  [WARNING]  MD5 used for password hash   L12
+ * Tree view panel — shows all critiq findings organized by severity group,
+ * then by file. Clicking a finding navigates to that file:line.
  */
 
 import * as path from "path";
 import * as vscode from "vscode";
 import { CritiqComment, CritiqResult } from "./critiq";
 
-// ── Tree item types ───────────────────────────────────────────────────────────
+// ── Tree node types ───────────────────────────────────────────────────────────
 
-export class FileNode extends vscode.TreeItem {
-  constructor(
-    public readonly filePath: string,
-    public readonly issues: CritiqComment[]
-  ) {
-    const label = path.basename(filePath);
-    super(label, vscode.TreeItemCollapsibleState.Expanded);
-    this.description = `${issues.length} issue${issues.length === 1 ? "" : "s"}`;
-    this.tooltip = filePath;
-    this.contextValue = "critiqFile";
-    this.iconPath = new vscode.ThemeIcon("file-code");
-  }
+type NodeKind = "group" | "file" | "finding";
+
+interface GroupNode {
+  kind: "group";
+  severity: CritiqComment["severity"];
+  label: string;
+  count: number;
+  children: FileNode[];
 }
 
-export class IssueNode extends vscode.TreeItem {
-  constructor(
-    public readonly comment: CritiqComment,
-    public readonly workspaceRoot: string
-  ) {
-    const icon = severityIcon(comment.severity);
-    super(`${icon} ${comment.title}`, vscode.TreeItemCollapsibleState.None);
-
-    this.description = comment.line || "";
-    this.tooltip = comment.body || comment.title;
-    this.contextValue = "critiqIssue";
-
-    // Click → navigate to the file at the issue line
-    if (comment.file) {
-      const absPath = comment.file.startsWith("/")
-        ? comment.file
-        : path.join(workspaceRoot, comment.file);
-      const lineNum = parseLineNumber(comment.line);
-
-      this.command = {
-        command: "critiq.openIssue",
-        title: "Go to issue",
-        arguments: [absPath, lineNum],
-      };
-    }
-
-    // Use diagnostic severity colour
-    this.iconPath = severityThemeIcon(comment.severity);
-  }
+interface FileNode {
+  kind: "file";
+  label: string;
+  absPath: string;
+  severity: CritiqComment["severity"];
+  children: FindingNode[];
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function severityIcon(severity: CritiqComment["severity"]): string {
-  switch (severity) {
-    case "critical":
-      return "🚨";
-    case "warning":
-      return "⚠️ ";
-    case "info":
-      return "ℹ️ ";
-    case "suggestion":
-      return "💡";
-  }
+interface FindingNode {
+  kind: "finding";
+  comment: CritiqComment;
+  absPath: string;
+  lineNum: number; // 0-based
 }
 
-function severityThemeIcon(
-  severity: CritiqComment["severity"]
-): vscode.ThemeIcon {
-  switch (severity) {
-    case "critical":
-      return new vscode.ThemeIcon(
-        "error",
-        new vscode.ThemeColor("errorForeground")
-      );
-    case "warning":
-      return new vscode.ThemeIcon(
-        "warning",
-        new vscode.ThemeColor("editorWarning.foreground")
-      );
-    case "info":
-      return new vscode.ThemeIcon(
-        "info",
-        new vscode.ThemeColor("editorInfo.foreground")
-      );
-    case "suggestion":
-      return new vscode.ThemeIcon("lightbulb");
-  }
-}
+type TreeNode = GroupNode | FileNode | FindingNode;
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+const SEVERITY_ORDER: CritiqComment["severity"][] = [
+  "critical",
+  "warning",
+  "info",
+  "suggestion",
+];
+
+const SEVERITY_ICONS: Record<CritiqComment["severity"], string> = {
+  critical: "$(error)",
+  warning: "$(warning)",
+  info: "$(info)",
+  suggestion: "$(lightbulb)",
+};
+
+const SEVERITY_LABELS: Record<CritiqComment["severity"], string> = {
+  critical: "Critical",
+  warning: "Warnings",
+  info: "Info",
+  suggestion: "Suggestions",
+};
 
 function parseLineNumber(lineRef: string): number {
-  if (!lineRef) {
-    return 0;
-  }
+  if (!lineRef) return 0;
   const cleaned = lineRef.replace(/^[Ll]ine\s+/i, "").replace(/^L/i, "");
   const dashIdx = cleaned.indexOf("-");
   const numStr = dashIdx > 0 ? cleaned.slice(0, dashIdx) : cleaned;
@@ -111,91 +68,169 @@ function parseLineNumber(lineRef: string): number {
   return isNaN(n) ? 0 : Math.max(0, n - 1);
 }
 
-type TreeNode = FileNode | IssueNode;
+function buildTree(
+  result: CritiqResult,
+  workspaceRoot: string
+): GroupNode[] {
+  // Group by severity → file → findings
+  const grouped = new Map<
+    CritiqComment["severity"],
+    Map<string, { absPath: string; comments: CritiqComment[] }>
+  >();
 
-// ── Tree data provider ────────────────────────────────────────────────────────
+  for (const sev of SEVERITY_ORDER) {
+    grouped.set(sev, new Map());
+  }
+
+  for (const comment of result.comments) {
+    const sev = comment.severity;
+    const fileMap = grouped.get(sev)!;
+
+    const absPath = comment.file
+      ? comment.file.startsWith("/")
+        ? comment.file
+        : path.join(workspaceRoot, comment.file)
+      : workspaceRoot;
+
+    const key = absPath;
+    if (!fileMap.has(key)) {
+      fileMap.set(key, { absPath, comments: [] });
+    }
+    fileMap.get(key)!.comments.push(comment);
+  }
+
+  const groups: GroupNode[] = [];
+
+  for (const sev of SEVERITY_ORDER) {
+    const fileMap = grouped.get(sev)!;
+    if (fileMap.size === 0) continue;
+
+    const fileNodes: FileNode[] = [];
+    for (const { absPath, comments } of fileMap.values()) {
+      const findings: FindingNode[] = comments.map((c) => ({
+        kind: "finding" as const,
+        comment: c,
+        absPath,
+        lineNum: parseLineNumber(c.line),
+      }));
+      fileNodes.push({
+        kind: "file",
+        label: path.basename(absPath),
+        absPath,
+        severity: sev,
+        children: findings,
+      });
+    }
+
+    const totalFindings = fileNodes.reduce((s, f) => s + f.children.length, 0);
+    groups.push({
+      kind: "group",
+      severity: sev,
+      label: `${SEVERITY_LABELS[sev]} (${totalFindings})`,
+      count: totalFindings,
+      children: fileNodes,
+    });
+  }
+
+  return groups;
+}
+
+// ── TreeDataProvider ──────────────────────────────────────────────────────────
 
 export class CritiqTreeProvider
   implements vscode.TreeDataProvider<TreeNode>
 {
-  private readonly _onDidChangeTreeData =
-    new vscode.EventEmitter<TreeNode | undefined | void>();
+  private _onDidChangeTreeData = new vscode.EventEmitter<
+    TreeNode | undefined | null | void
+  >();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
-  private result: CritiqResult | null = null;
-  private workspaceRoot = "";
+  private _groups: GroupNode[] = [];
+  private _summary = "";
 
-  update(result: CritiqResult, workspaceRoot: string): void {
-    this.result = result;
-    this.workspaceRoot = workspaceRoot;
+  update(result: CritiqResult | null, workspaceRoot: string): void {
+    if (!result) {
+      this._groups = [];
+      this._summary = "";
+    } else {
+      this._groups = buildTree(result, workspaceRoot);
+      this._summary = result.summary;
+    }
     this._onDidChangeTreeData.fire();
   }
 
-  clear(): void {
-    this.result = null;
-    this._onDidChangeTreeData.fire();
-  }
-
-  getTreeItem(element: TreeNode): vscode.TreeItem {
-    return element;
-  }
-
-  getChildren(element?: TreeNode): TreeNode[] {
-    if (!this.result) {
-      return [];
-    }
-
-    // Root level → group by file
-    if (!element) {
-      return this._buildFileNodes();
-    }
-
-    // File level → show issues
-    if (element instanceof FileNode) {
-      return element.issues.map(
-        (c) => new IssueNode(c, this.workspaceRoot)
+  getTreeItem(node: TreeNode): vscode.TreeItem {
+    if (node.kind === "group") {
+      const item = new vscode.TreeItem(
+        `${SEVERITY_ICONS[node.severity]} ${node.label}`,
+        vscode.TreeItemCollapsibleState.Expanded
       );
+      item.contextValue = "critiqGroup";
+      return item;
     }
 
-    return [];
+    if (node.kind === "file") {
+      const item = new vscode.TreeItem(
+        `$(file-code) ${node.label}`,
+        vscode.TreeItemCollapsibleState.Expanded
+      );
+      item.description = `${node.children.length} issue${node.children.length !== 1 ? "s" : ""}`;
+      item.tooltip = node.absPath;
+      item.contextValue = "critiqFile";
+      item.command = {
+        command: "vscode.open",
+        title: "Open file",
+        arguments: [vscode.Uri.file(node.absPath)],
+      };
+      return item;
+    }
+
+    // finding node
+    const { comment, absPath, lineNum } = node;
+    const icon = SEVERITY_ICONS[comment.severity];
+    const lineDisplay = comment.line ? ` (${comment.line})` : "";
+    const item = new vscode.TreeItem(
+      `${icon} ${comment.title}${lineDisplay}`,
+      vscode.TreeItemCollapsibleState.None
+    );
+
+    // Trim body for tooltip
+    const bodyShort = comment.body
+      .replace(/\*\*/g, "")
+      .split("\n")
+      .slice(0, 3)
+      .join("\n");
+    item.tooltip = new vscode.MarkdownString(
+      `**${comment.severity.toUpperCase()}**: ${comment.title}\n\n${bodyShort}`
+    );
+    item.description = comment.category || undefined;
+    item.contextValue = "critiqFinding";
+
+    // Navigate to the finding on click
+    item.command = {
+      command: "vscode.open",
+      title: "Go to finding",
+      arguments: [
+        vscode.Uri.file(absPath),
+        {
+          selection: new vscode.Range(lineNum, 0, lineNum, 0),
+        } as vscode.TextDocumentShowOptions,
+      ],
+    };
+
+    return item;
   }
 
-  private _buildFileNodes(): FileNode[] {
-    if (!this.result) {
-      return [];
+  getChildren(node?: TreeNode): TreeNode[] {
+    if (!node) {
+      // Root — return groups, or a placeholder if empty
+      if (this._groups.length === 0) {
+        return [];
+      }
+      return this._groups;
     }
-
-    const byFile = new Map<string, CritiqComment[]>();
-
-    for (const comment of this.result.comments) {
-      const fileKey = comment.file || "(no file)";
-      const existing = byFile.get(fileKey) ?? [];
-      byFile.set(fileKey, [...existing, comment]);
-    }
-
-    // Sort: most severe first (files with critical issues at top)
-    const sorted = [...byFile.entries()].sort(([, a], [, b]) => {
-      const score = (comments: CritiqComment[]) =>
-        comments.reduce((s, c) => {
-          return (
-            s +
-            (c.severity === "critical"
-              ? 1000
-              : c.severity === "warning"
-              ? 100
-              : c.severity === "info"
-              ? 10
-              : 1)
-          );
-        }, 0);
-      return score(b) - score(a);
-    });
-
-    return sorted.map(([filePath, issues]) => {
-      const absPath = filePath.startsWith("/")
-        ? filePath
-        : path.join(this.workspaceRoot, filePath);
-      return new FileNode(absPath, issues);
-    });
+    if (node.kind === "group") return node.children;
+    if (node.kind === "file") return node.children;
+    return [];
   }
 }

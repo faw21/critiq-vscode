@@ -7,6 +7,7 @@ AI-powered code review directly in VS Code. Reviews your git changes before you 
 - **Inline diagnostics** — findings appear as red/yellow squiggles and in the Problems panel
 - **🌲 Findings Tree View** — dedicated sidebar panel showing all issues grouped by file, sorted by severity; click any issue to jump to the exact line
 - **🔧 One-click Fix** — "Fix with critiq" lightbulb appears on any flagged line; auto-patches the file using the critiq CLI and refreshes diagnostics
+- **🎨 Gutter decorations** — colored circles in the editor gutter (red/yellow/blue/gray) and inline ghost text after flagged lines (GitLens-style): `⚡ SQL injection vulnerability`
 - **Status bar** — always shows your current review status with issue counts (click to re-run)
 - **Language-aware** — automatically detects Python, Go, TypeScript, Rust, JavaScript, and injects language-specific antipattern checks
 - **Severity levels** — CRITICAL (error/red), WARNING (yellow), INFO (info), SUGGESTION (hint)
@@ -87,8 +88,9 @@ Commands are also accessible from:
 2. critiq runs `critiq --json` on your staged changes
 3. Findings appear as VS Code diagnostics (Problems panel + inline squiggles)
 4. Open the **critiq sidebar** (shield icon) to see all findings grouped by file
-5. Hover over any flagged line → click the 💡 lightbulb → "Fix with critiq"
-6. Status bar shows issue count — click to re-run
+5. Colored circles appear in the editor gutter + inline ghost text after each flagged line
+6. Hover over any flagged line → click the 💡 lightbulb → "Fix with critiq"
+7. Status bar shows issue count — click to re-run
 
 The extension requires the [critiq CLI](https://github.com/faw21/critiq) (`pip install critiq`). All LLM calls are made by the CLI, not the extension itself — your API keys stay in your environment.
 

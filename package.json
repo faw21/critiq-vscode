@@ -2,7 +2,7 @@
   "name": "critiq",
   "displayName": "critiq \u2014 AI Code Reviewer",
   "description": "AI-powered code review in VS Code: catch security issues, bugs, and antipatterns before you push. Powered by Claude, OpenAI, or local Ollama.",
-  "version": "1.2.0",
+  "version": "1.1.0",
   "publisher": "faw21",
   "engines": {
     "vscode": "^1.80.0"
@@ -65,6 +65,11 @@
         "command": "critiq.fixFile",
         "title": "critiq: Fix All Issues in File",
         "icon": "$(wrench)"
+      },
+      {
+        "command": "critiq.ignoreIssue",
+        "title": "critiq: Ignore This Issue Type",
+        "icon": "$(eye-closed)"
       }
     ],
     "viewsContainers": {
