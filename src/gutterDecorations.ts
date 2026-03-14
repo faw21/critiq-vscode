@@ -155,6 +155,7 @@ export class CritiqGutterDecorations {
       for (const decType of Object.values(DECORATION_TYPES)) {
         editor.setDecorations(decType, []);
       }
+      editor.setDecorations(INLINE_GHOST_TYPE, []);
     }
   }
 
@@ -196,6 +197,23 @@ export class CritiqGutterDecorations {
       const ranges = lines.map((line) => new vscode.Range(line, 0, line, 0));
       editor.setDecorations(decType, ranges);
     }
+
+    // Apply inline ghost text (first issue per line)
+    editor.setDecorations(INLINE_GHOST_TYPE, []);
+    const ghostDecorations: vscode.DecorationOptions[] = [];
+    const seenLines = new Set<number>();
+    for (const comment of comments) {
+      const lineNum = parseLineNumber(comment.line);
+      if (!seenLines.has(lineNum)) {
+        seenLines.add(lineNum);
+        const prefix = comment.severity === "critical" ? "⚡" : comment.severity === "warning" ? "⚠" : "·";
+        ghostDecorations.push({
+          range: new vscode.Range(lineNum, 999, lineNum, 999),
+          renderOptions: { after: { contentText: `  ${prefix} ${comment.title}` } },
+        });
+      }
+    }
+    editor.setDecorations(INLINE_GHOST_TYPE, ghostDecorations);
   }
 
   dispose(): void {
